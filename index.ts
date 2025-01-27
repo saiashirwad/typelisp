@@ -123,8 +123,6 @@ type parse<s extends State<any>> = s["unscanned"] extends ""
 					? parse<shiftNumber<s>>
 					: parse<shiftSymbol<s>>;
 
-type result1 = parse<initialState<"(add (add 2 3) 5)">>;
-type result2 = parse<initialState<'(concat "hello" true)'>>;
-
-type test1 = show<result1>;
-type test2 = show<result2>;
+type parseResult = parse<
+	initialState<'(something (add 2 3) "hi")'>
+>;
