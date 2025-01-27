@@ -6,7 +6,8 @@ type Token =
 	| { type: "number"; value: number }
 	| { type: "symbol"; value: string }
 	| { type: "string"; value: string }
-	| { type: "boolean"; value: boolean };
+	| { type: "boolean"; value: boolean }
+	| { type: "list"; value: Token[] };
 
 type State<
 	unscanned extends string,
@@ -33,24 +34,6 @@ type shiftNumber<s extends State<any>> =
 				s["stack"]
 			>
 		: s;
-
-type shiftBoolean<s extends State<any>> =
-	s["unscanned"] extends `true${infer rest}`
-		? State<
-				trimLeft<rest>,
-				[...s["current"], { type: "boolean"; value: true }],
-				s["stack"]
-			>
-		: s["unscanned"] extends `false${infer rest}`
-			? State<
-					trimLeft<rest>,
-					[
-						...s["current"],
-						{ type: "boolean"; value: false },
-					],
-					s["stack"]
-				>
-			: s;
 
 type isDelimiter<char extends string> = char extends
 	| " "
@@ -121,13 +104,15 @@ type popStack<s extends State<any>> = s["stack"] extends [
 ]
 	? State<
 			consumeChar<s, ")" | " ">,
-			[...tail, ...s["current"]],
+			[...tail, { type: "list"; value: s["current"] }],
 			stack
 		>
 	: never;
 
 type parse<s extends State<any>> = s["unscanned"] extends ""
-	? s["current"]
+	? s["current"][0] extends { type: "list" }
+		? s["current"]
+		: [{ type: "list"; value: s["current"] }]
 	: s["unscanned"] extends `(${string}`
 		? parse<pushStack<s>>
 		: s["unscanned"] extends `${")" | " "}${string}`
@@ -136,16 +121,10 @@ type parse<s extends State<any>> = s["unscanned"] extends ""
 				? parse<shiftString<s>>
 				: s["unscanned"] extends `${number}${string}`
 					? parse<shiftNumber<s>>
-					: s["unscanned"] extends `${"true" | "false"}${string}`
-						? parse<shiftBoolean<s>>
-						: parse<shiftSymbol<s>>;
+					: parse<shiftSymbol<s>>;
 
-type result1 = parse<initialState<"(add 2 3)">>;
-type result2 = parse<
-	initialState<'(concat "hello" "world")'>
->;
-type result3 = parse<initialState<"(if true 1 0)">>;
+type result1 = parse<initialState<"(add (add 2 3) 5)">>;
+type result2 = parse<initialState<'(concat "hello" true)'>>;
 
 type test1 = show<result1>;
 type test2 = show<result2>;
-type test3 = show<result3>;
