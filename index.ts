@@ -3,11 +3,11 @@ export type show<t> = { [k in keyof t]: t[k] } & unknown;
 type State<
 	unscanned extends string,
 	current extends unknown[] = unknown[],
-	groups extends unknown[][] = unknown[][],
+	stack extends unknown[][] = unknown[][],
 > = {
 	unscanned: unscanned;
 	current: current;
-	groups: groups;
+	stack: stack;
 };
 
 type initialState<T extends string> = State<T, [], []>;
@@ -17,22 +17,28 @@ type trimLeft<s extends string> =
 		? trimLeft<rest>
 		: s;
 
-type pushNumber<s extends State<any>> =
+type shiftNumber<s extends State<any>> =
 	s["unscanned"] extends `${infer digit extends number}${infer rest}`
 		? State<
 				trimLeft<rest>,
 				[...s["current"], digit],
-				s["groups"]
+				s["stack"]
 			>
 		: s;
 
-type pushChar<
+type shiftChar<
 	s extends State<any>,
 	ch extends string,
 > = trimLeft<
 	s["unscanned"] extends `${ch}${infer rest}`
 		? rest
 		: s["unscanned"]
+>;
+
+type reduce<s extends State<any>> = State<
+	s["unscanned"],
+	s["current"],
+	s["stack"]
 >;
 
 type parseSymbol<s extends State<any>> =
@@ -42,37 +48,37 @@ type parseSymbol<s extends State<any>> =
 			: State<
 					trimLeft<rest>,
 					[...s["current"], char],
-					s["groups"]
+					s["stack"]
 				> & {
 					symbol: char;
 				}
 		: s;
 
-type pushGroup<s extends State<any>> = State<
-	trimLeft<pushChar<s, "(">>,
+type pushStack<s extends State<any>> = State<
+	trimLeft<shiftChar<s, "(">>,
 	[],
-	[...s["groups"], s["current"]]
+	[...s["stack"], s["current"]]
 >;
 
-type popGroup<s extends State<any>> = s["groups"] extends [
-	...infer prevGroups extends unknown[][],
-	infer lastGroup extends unknown[],
+type popStack<s extends State<any>> = s["stack"] extends [
+	...infer prevStack extends unknown[][],
+	infer lastItem extends unknown[],
 ]
 	? State<
-			pushChar<s, ")">,
-			[...lastGroup, s["current"]],
-			prevGroups
+			shiftChar<s, ")">,
+			[...lastItem, s["current"]],
+			prevStack
 		>
 	: never;
 
 type parse<s extends State<any>> = s["unscanned"] extends ""
 	? s["current"]
 	: s["unscanned"] extends `(${string}`
-		? parse<pushGroup<s>>
+		? parse<pushStack<s>>
 		: s["unscanned"] extends `)${string}`
-			? parse<popGroup<s>>
+			? parse<popStack<s>>
 			: s["unscanned"] extends `${number}${string}`
-				? parse<pushNumber<s>>
+				? parse<shiftNumber<s>>
 				: parse<parseSymbol<s>>;
 
 type result1 = parse<initialState<`(add (add 12 2) 3)`>>;
