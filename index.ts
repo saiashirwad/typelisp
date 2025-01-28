@@ -7,7 +7,13 @@ type Token =
 	| { type: "symbol"; value: string }
 	| { type: "string"; value: string }
 	| { type: "boolean"; value: boolean }
-	| { type: "list"; value: Token[] };
+	| { type: "list"; value: Token[] }
+	| { type: "definition"; name: Token; value: Token }
+	| {
+			type: "let";
+			bindings: Array<{ name: Token; value: Token }>;
+			body: Token;
+	  };
 
 type State<
 	unscanned extends string,
@@ -98,13 +104,71 @@ type pushStack<s extends State<any>> = State<
 	[...s["stack"], s["current"]]
 >;
 
+type isSymbol<
+	T extends Token,
+	V extends string,
+> = T extends { type: "symbol"; value: V } ? true : false;
+
+type transformDefinition<T extends Token> = T extends {
+	type: "list";
+	value: [
+		infer First extends Token,
+		infer Name extends Token,
+		infer Value extends Token,
+	];
+}
+	? isSymbol<First, "define"> extends true
+		? { type: "definition"; name: Name; value: Value }
+		: T
+	: T;
+
+type extractBindings<T extends Token[]> = T extends [
+	{
+		type: "list";
+		value: [
+			infer name extends Token,
+			infer value extends Token,
+		];
+	},
+	...infer rest extends Token[],
+]
+	? [{ name: name; value: value }, ...extractBindings<rest>]
+	: [];
+
+type transformLet<t extends Token> = t extends {
+	type: "list";
+	value: [
+		infer first extends Token,
+		{ type: "list"; value: infer bindings extends Token[] },
+		infer body extends Token,
+	];
+}
+	? isSymbol<first, "let"> extends true
+		? {
+				type: "let";
+				bindings: extractBindings<bindings>;
+				body: body;
+			}
+		: t
+	: t;
+
+type transformSpecialForms<T extends Token> = transformLet<
+	transformDefinition<T>
+>;
+
 type popStack<s extends State<any>> = s["stack"] extends [
 	...infer stack extends Token[][],
 	infer tail extends Token[],
 ]
 	? State<
 			consumeChar<s, ")" | " ">,
-			[...tail, { type: "list"; value: s["current"] }],
+			[
+				...tail,
+				transformSpecialForms<{
+					type: "list";
+					value: s["current"];
+				}>,
+			],
 			stack
 		>
 	: never;
@@ -123,6 +187,8 @@ type parse<s extends State<any>> = s["unscanned"] extends ""
 					? parse<shiftNumber<s>>
 					: parse<shiftSymbol<s>>;
 
-type parseResult = parse<
-	initialState<'(something (add 2 3) "hi")'>
+type parseResult = parse<initialState<"(define x 5)">>;
+
+type parseLetResult = parse<
+	initialState<"(let ((x 1) (y 2)) (+ x y))">
 >;
