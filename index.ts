@@ -11,7 +11,7 @@ type Token =
 	| { type: "definition"; name: Token; value: Token }
 	| {
 			type: "let";
-			bindings: Array<{ name: Token; value: Token }>;
+			bindings: { name: Token; value: Token }[];
 			body: Token;
 	  };
 
@@ -107,7 +107,12 @@ type pushStack<s extends State<any>> = State<
 type isSymbol<
 	T extends Token,
 	V extends string,
-> = T extends { type: "symbol"; value: V } ? true : false;
+> = T extends {
+	type: "symbol";
+	value: V;
+}
+	? true
+	: false;
 
 type transformDefinition<T extends Token> = T extends {
 	type: "list";
@@ -191,4 +196,197 @@ type parseResult = parse<initialState<"(define x 5)">>;
 
 type parseLetResult = parse<
 	initialState<"(let ((x 1) (y 2)) (+ x y))">
+>;
+
+type Environment = {
+	bindings: Record<string, Token>;
+	parent: Environment | null;
+};
+
+type emptyEnv = {
+	bindings: {};
+	parent: null;
+};
+
+type lookupEnv<
+	env extends Environment,
+	key extends string,
+> = env["bindings"][key] extends Token
+	? env["bindings"][key]
+	: env["parent"] extends Environment
+		? lookupEnv<env["parent"], key>
+		: never;
+
+type createScopedEnv<
+	env extends Environment,
+	key extends string,
+	value extends Token,
+> = {
+	bindings: {
+		[k in key]: value;
+	} & env["bindings"];
+	parent: env;
+};
+
+type extendEnv<
+	env extends Environment,
+	key extends string,
+	value extends Token,
+> = {
+	bindings: show<
+		{
+			[k in key]: value;
+		} & env["bindings"]
+	>;
+	parent: env["parent"];
+};
+
+type buildTuple<
+	n extends number,
+	acc extends any[] = [],
+> = acc["length"] extends n
+	? acc
+	: buildTuple<n, [...acc, 0]>;
+
+type add<a extends number, b extends number> = [
+	...buildTuple<a>,
+	...buildTuple<b>,
+]["length"];
+
+type subtract<
+	a extends number,
+	b extends number,
+> = buildTuple<a> extends [...buildTuple<b>, ...infer rest]
+	? rest["length"]
+	: never;
+
+type eval<
+	tok extends Token,
+	env extends Environment,
+> = tok extends {
+	type: "number";
+}
+	? tok
+	: tok extends {
+				type: "symbol";
+				value: infer sym extends string;
+			}
+		? lookupEnv<env, sym>
+		: tok extends {
+					type: "list";
+					value: [
+						infer first extends Token,
+						...infer rest extends Token[],
+					];
+				}
+			? evalApplication<first, rest, env>
+			: tok extends {
+						type: "definition";
+						name: {
+							type: "symbol";
+							value: infer n extends string;
+						};
+						value: infer val extends Token;
+					}
+				? extendEnv<
+						env,
+						n,
+						eval<val, env> extends Token
+							? eval<val, env>
+							: never
+					>
+				: tok extends {
+							type: "let";
+							bindings: infer bindings extends Array<{
+								name: Token;
+								value: Token;
+							}>;
+							body: infer body extends Token;
+						}
+					? evalLet<bindings, body, env>
+					: never;
+
+type evalApplication<
+	fn extends Token,
+	args extends Token[],
+	env extends Environment,
+> = fn extends { type: "symbol"; value: "add" }
+	? args extends [
+			infer a extends Token,
+			infer b extends Token,
+		]
+		? eval<a, env> extends {
+				type: "number";
+				value: infer x extends number;
+			}
+			? eval<b, env> extends {
+					type: "number";
+					value: infer y extends number;
+				}
+				? { type: "number"; value: add<x, y> }
+				: never
+			: never
+		: never
+	: fn extends { type: "symbol"; value: "sub" }
+		? args extends [
+				infer a extends Token,
+				infer b extends Token,
+			]
+			? eval<a, env> extends {
+					type: "number";
+					value: infer x extends number;
+				}
+				? eval<b, env> extends {
+						type: "number";
+						value: infer y extends number;
+					}
+					? { type: "number"; value: subtract<x, y> }
+					: never
+				: never
+			: never
+		: never;
+
+type evalLet<
+	bindings extends Array<{ name: Token; value: Token }>,
+	body extends Token,
+	env extends Environment,
+> = bindings extends []
+	? eval<body, env>
+	: bindings extends [
+				{
+					name: {
+						type: "symbol";
+						value: infer n extends string;
+					};
+					value: infer val extends Token;
+				},
+				...infer rest extends Array<{
+					name: Token;
+					value: Token;
+				}>,
+			]
+		? evalLet<
+				rest,
+				body,
+				createScopedEnv<
+					env,
+					n,
+					eval<val, env> extends Token
+						? eval<val, env>
+						: never
+				>
+			>
+		: never;
+
+type initialEnv = {
+	bindings: {
+		add: { type: "symbol"; value: "add" };
+		sub: { type: "symbol"; value: "sub" };
+	};
+	parent: emptyEnv;
+};
+
+type result = eval<
+	parse<initialState<"(add (sub 4 3) 4)">>[0],
+	initialEnv
 >;
