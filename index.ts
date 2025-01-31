@@ -2,6 +2,39 @@ export type show<t> = {
 	[k in keyof t]: t[k];
 } & unknown;
 
+type Num<value extends number> = {
+	type: "number";
+	value: value;
+};
+
+type Sym<value extends string> = {
+	type: "symbol";
+	value: value;
+};
+
+type List<value extends Token[]> = {
+	type: "list";
+	value: value;
+};
+
+type Def<name extends string, value extends Token> = {
+	type: "definition";
+	name: {
+		type: "symbol";
+		value: name;
+	};
+	value: value;
+};
+
+type Let<
+	bindings extends Array<{ name: Token; value: Token }>,
+	body extends Token,
+> = {
+	type: "let";
+	bindings: bindings;
+	body: body;
+};
+
 type Token =
 	| { type: "number"; value: number }
 	| { type: "symbol"; value: string }
@@ -32,8 +65,13 @@ type trimLeft<s extends string> =
 		? trimLeft<rest>
 		: s;
 
+type numPattern<
+	digit extends number,
+	rest extends string,
+> = `${digit}${rest}`;
+
 type shiftNumber<s extends State<any>> =
-	s["unscanned"] extends `${infer digit extends number}${infer rest}`
+	s["unscanned"] extends numPattern<infer digit, infer rest>
 		? State<
 				trimLeft<rest>,
 				[...s["current"], { type: "number"; value: digit }],
@@ -58,20 +96,27 @@ type accumulateSymbol<
 		: accumulateSymbol<rest, `${acc}${char}`>
 	: [acc, str];
 
+type Accumulated<s extends string, acc extends string> = [
+	s,
+	acc,
+];
+
+type appendToken<
+	s extends State<any>,
+	type extends Token["type"],
+	value extends any,
+> = [...s["current"], { type: type; value: value }];
+
 type shiftSymbol<s extends State<any>> =
-	s["unscanned"] extends `${infer char}${infer rest}`
+	s["unscanned"] extends `${infer char}${infer _}`
 		? isDelimiter<char> extends true
 			? s
-			: accumulateSymbol<s["unscanned"]> extends [
-						infer sym extends string,
-						infer remaining extends string,
-					]
+			: accumulateSymbol<
+						s["unscanned"]
+					> extends Accumulated<infer sym, infer remaining>
 				? State<
 						trimLeft<remaining>,
-						[
-							...s["current"],
-							{ type: "symbol"; value: sym },
-						],
+						appendToken<s, "symbol", sym>,
 						s["stack"]
 					>
 				: s
@@ -81,10 +126,7 @@ type shiftString<s extends State<any>> =
 	s["unscanned"] extends `"${infer content}"${infer rest}`
 		? State<
 				trimLeft<rest>,
-				[
-					...s["current"],
-					{ type: "string"; value: content },
-				],
+				appendToken<s, "string", content>,
 				s["stack"]
 			>
 		: s;
@@ -114,26 +156,27 @@ type isSymbol<
 	? true
 	: false;
 
+type List3<first, second, third> = [first, second, third];
+
 type transformDefinition<T extends Token> = T extends {
 	type: "list";
-	value: [
-		infer First extends Token,
-		infer Name extends Token,
-		infer Value extends Token,
-	];
+	value: List3<
+		infer first extends Token,
+		infer name,
+		infer value extends Token
+	>;
 }
-	? isSymbol<First, "define"> extends true
-		? { type: "definition"; name: Name; value: Value }
+	? isSymbol<first, "define"> extends true
+		? Def<name & string, value>
 		: T
 	: T;
+
+type List2<first, second> = [first, second];
 
 type extractBindings<T extends Token[]> = T extends [
 	{
 		type: "list";
-		value: [
-			infer name extends Token,
-			infer value extends Token,
-		];
+		value: List2<infer name, infer value>;
 	},
 	...infer rest extends Token[],
 ]
@@ -251,7 +294,8 @@ type buildTuple<
 type add<a extends number, b extends number> = [
 	...buildTuple<a>,
 	...buildTuple<b>,
-]["length"];
+]["length"] &
+	number;
 
 type subtract<
 	a extends number,
@@ -263,31 +307,18 @@ type subtract<
 type eval<
 	tok extends Token,
 	env extends Environment,
-> = tok extends {
-	type: "number";
-}
+> = tok extends Num<any>
 	? tok
-	: tok extends {
-				type: "symbol";
-				value: infer sym extends string;
-			}
+	: tok extends Sym<infer sym>
 		? lookupEnv<env, sym>
-		: tok extends {
-					type: "list";
-					value: [
+		: tok extends List<
+					[
 						infer first extends Token,
 						...infer rest extends Token[],
-					];
-				}
+					]
+				>
 			? evalApplication<first, rest, env>
-			: tok extends {
-						type: "definition";
-						name: {
-							type: "symbol";
-							value: infer n extends string;
-						};
-						value: infer val extends Token;
-					}
+			: tok extends Def<infer n, infer val>
 				? extendEnv<
 						env,
 						n,
@@ -295,52 +326,32 @@ type eval<
 							? eval<val, env>
 							: never
 					>
-				: tok extends {
-							type: "let";
-							bindings: infer bindings extends Array<{
-								name: Token;
-								value: Token;
-							}>;
-							body: infer body extends Token;
-						}
+				: tok extends Let<infer bindings, infer body>
 					? evalLet<bindings, body, env>
 					: never;
+
+type ApplicationArgs<a extends Token, b extends Token> = [
+	a,
+	b,
+];
 
 type evalApplication<
 	fn extends Token,
 	args extends Token[],
 	env extends Environment,
 > = fn extends { type: "symbol"; value: "add" }
-	? args extends [
-			infer a extends Token,
-			infer b extends Token,
-		]
-		? eval<a, env> extends {
-				type: "number";
-				value: infer x extends number;
-			}
-			? eval<b, env> extends {
-					type: "number";
-					value: infer y extends number;
-				}
-				? { type: "number"; value: add<x, y> }
+	? args extends ApplicationArgs<infer a, infer b>
+		? eval<a, env> extends Num<infer x>
+			? eval<b, env> extends Num<infer y>
+				? Num<add<x, y>>
 				: never
 			: never
 		: never
-	: fn extends { type: "symbol"; value: "sub" }
-		? args extends [
-				infer a extends Token,
-				infer b extends Token,
-			]
-			? eval<a, env> extends {
-					type: "number";
-					value: infer x extends number;
-				}
-				? eval<b, env> extends {
-						type: "number";
-						value: infer y extends number;
-					}
-					? { type: "number"; value: subtract<x, y> }
+	: fn extends Sym<"sub">
+		? args extends ApplicationArgs<infer a, infer b>
+			? eval<a, env> extends Num<infer x>
+				? eval<b, env> extends Num<infer y>
+					? Num<subtract<x, y>>
 					: never
 				: never
 			: never
