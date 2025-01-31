@@ -1,0 +1,7 @@
+{
+  "biome.enabled": false,
+  "editor.formatOnSave": true,
+  "[typescript]": {
+    "editor.defaultFormatter": "dprint.dprint"
+  }
+}
