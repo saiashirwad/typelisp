@@ -1,5 +1,7 @@
 export type prettify<t> = { [k in keyof t]: t[k] } & unknown;
 
+type Bindings = { name: Token; value: Token }[];
+
 type Token =
   | { type: "number"; value: number }
   | { type: "symbol"; value: string }
@@ -7,26 +9,30 @@ type Token =
   | { type: "boolean"; value: boolean }
   | { type: "list"; value: Token[] }
   | { type: "definition"; name: Token; value: Token }
-  | { type: "let"; bindings: { name: Token; value: Token }[]; body: Token };
+  | { type: "let"; bindings: Bindings; body: Token };
 
-type Constructor<
-  T extends Token["type"],
-  Rest extends Omit<Extract<Token, { type: T }>, "type">,
+type constructor<
+  Type extends { type: string },
+  T extends Type["type"],
+  Rest extends Omit<Type, "type"> = Omit<Type, "type">,
 > = prettify<{ type: T } & Rest>;
 
-type List<value extends Token[]> = Constructor<"list", { value: value }>;
-type Num<value extends number> = Constructor<"number", { value: value }>;
-type Sym<value extends string> = Constructor<"symbol", { value: value }>;
-type Str<value extends string> = Constructor<"string", { value: value }>;
-type Bool<value extends boolean> = Constructor<"boolean", { value: value }>;
-type Def<name extends string, value extends Token> = Constructor<
+type List<value extends Token[]> = constructor<Token, "list", { value: value }>;
+type Num<value extends number> = constructor<Token, "number", { value: value }>;
+type Sym<value extends string> = constructor<Token, "symbol", { value: value }>;
+type Str<value extends string> = constructor<Token, "string", { value: value }>;
+type Bool<value extends boolean> = constructor<
+  Token,
+  "boolean",
+  { value: value }
+>;
+type Def<name extends string, value extends Token> = constructor<
+  Token,
   "definition",
   { name: Sym<name>; value: value }
 >;
-type Let<
-  bindings extends Array<{ name: Token; value: Token }>,
-  body extends Token,
-> = Constructor<
+type Let<bindings extends Bindings, body extends Token> = constructor<
+  Token,
   "let",
   { bindings: bindings; body: body }
 >;
