@@ -1,19 +1,4 @@
-export type show<t> = { [k in keyof t]: t[k] } & unknown;
-
-type Num<value extends number> = { type: "number"; value: value };
-type Sym<value extends string> = { type: "symbol"; value: value };
-type List<value extends Token[]> = { type: "list"; value: value };
-
-type Def<name extends string, value extends Token> = {
-  type: "definition";
-  name: { type: "symbol"; value: name };
-  value: value;
-};
-
-type Let<
-  bindings extends Array<{ name: Token; value: Token }>,
-  body extends Token,
-> = { type: "let"; bindings: bindings; body: body };
+export type prettify<t> = { [k in keyof t]: t[k] } & unknown;
 
 type Token =
   | { type: "number"; value: number }
@@ -23,6 +8,28 @@ type Token =
   | { type: "list"; value: Token[] }
   | { type: "definition"; name: Token; value: Token }
   | { type: "let"; bindings: { name: Token; value: Token }[]; body: Token };
+
+type Constructor<
+  T extends Token["type"],
+  Rest extends Omit<Extract<Token, { type: T }>, "type">,
+> = prettify<{ type: T } & Rest>;
+
+type List<value extends Token[]> = Constructor<"list", { value: value }>;
+type Num<value extends number> = Constructor<"number", { value: value }>;
+type Sym<value extends string> = Constructor<"symbol", { value: value }>;
+type Str<value extends string> = Constructor<"string", { value: value }>;
+type Bool<value extends boolean> = Constructor<"boolean", { value: value }>;
+type Def<name extends string, value extends Token> = Constructor<
+  "definition",
+  { name: Sym<name>; value: value }
+>;
+type Let<
+  bindings extends Array<{ name: Token; value: Token }>,
+  body extends Token,
+> = Constructor<
+  "let",
+  { bindings: bindings; body: body }
+>;
 
 type State<
   unscanned extends string,
@@ -170,10 +177,6 @@ type parse<s extends State<any>> = s["unscanned"] extends ""
   : s["unscanned"] extends `${number}${string}` ? parse<shiftNumber<s>>
   : parse<shiftSymbol<s>>;
 
-type parseLetResult = parse<
-  initialState<"(let ((x 1) (y 2)) (+ x y))">
->;
-
 type Environment = {
   bindings: Record<string, Token>;
   parent: Environment | null;
@@ -196,14 +199,14 @@ type createScopedEnv<
 > = {
   bindings: { [k in key]: value } & env["bindings"];
   parent: env;
-};
+} & Environment;
 
 type extendEnv<
   env extends Environment,
   key extends string,
   value extends Token,
 > = {
-  bindings: show<{ [k in key]: value } & env["bindings"]>;
+  bindings: prettify<{ [k in key]: value } & env["bindings"]>;
   parent: env["parent"];
 };
 
@@ -237,7 +240,9 @@ type eval<
       n,
       eval<val, env> extends Token ? eval<val, env> : never
     >
-  : tok extends Let<infer bindings, infer body> ? evalLet<bindings, body, env>
+  : tok extends
+    Let<infer bindings extends Array<LetBinding<any, any>>, infer body>
+    ? evalLet<bindings, body, env>
   : never;
 
 type ApplicationArgs<a extends Token, b extends Token> = [
@@ -265,23 +270,22 @@ type evalApplication<
     : never
   : never;
 
+type LetBinding<name extends string, value extends Token> = {
+  name: Sym<name>;
+  value: value;
+};
+
 type evalLet<
-  bindings extends Array<{ name: Token; value: Token }>,
+  bindings extends Array<LetBinding<any, any>>,
   body extends Token,
   env extends Environment,
 > = bindings extends [] ? eval<body, env>
   : bindings extends [
     {
-      name: {
-        type: "symbol";
-        value: infer n extends string;
-      };
+      name: Sym<infer n>;
       value: infer val extends Token;
     },
-    ...infer rest extends Array<{
-      name: Token;
-      value: Token;
-    }>,
+    ...infer rest extends Array<LetBinding<any, any>>,
   ] ? evalLet<
       rest,
       body,
